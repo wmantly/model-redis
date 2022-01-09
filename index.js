@@ -1,20 +1,21 @@
 'use strict';
-const setUpTable = require('./src/redis_model')
+const table = require('./src/redis_model')
 var client = null
 
-function main(redis){
+function setUpTable(obj){
+	obj = obj || {};
 
-	if(typeof redis === 'function'){
-		client = redis;
+	if(obj.redisClient){
+		client = obj.redisClient;
 	}else{
 		const {createClient} = require('redis');
-		client = createClient(redis || {});
+		client = createClient(obj.redisConf || {});
 		client.connect();
 	}
 
 	// test client connection
 	
-	return setUpTable(client);
+	return table(client);
 }
 
-module.exports = { client , main};
+module.exports = {client, setUpTable};
