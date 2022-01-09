@@ -1,6 +1,6 @@
 {
   "name": "model-redis",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Simple ORM model for redis in NodsJS",
   "main": "index.js",
   "scripts": {
@@ -20,5 +20,8 @@
   "bugs": {
     "url": "https://github.com/wmantly/model-redis/issues"
   },
-  "homepage": "https://github.com/wmantly/model-redis#readme"
+  "homepage": "https://github.com/wmantly/model-redis#readme",
+  "dependencies": {
+    "redis": "^4.0.1"
+  }
 }
