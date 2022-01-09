@@ -93,14 +93,13 @@ class User extends Table{
 		'updated_on': {default: function(){return (new Date).getTime()}, always: true},
 		'username': {isRequired: true, type: 'string', min: 3, max: 500},
 		'password': {isRequired: true, type: 'string', min: 3, max: 500},
-	}
+	};
 
 	static async add(data) {
 		try{
 			data['password'] = await bcrypt.hash(data['password'], saltRounds);
 
-			return await super.add(data)
-
+			return await super.add(data);
 		}catch(error){
 			throw error;
 		}
@@ -118,12 +117,11 @@ class User extends Table{
 
 	static async login(data){
 		try{
-
 			let user = await User.get(data);
 			let auth = await bcrypt.compare(data.password, user.password);
 
 			if(auth){
-				return user
+				return user;
 			}else{
 				throw new Error("LogginFailed");
 			}
@@ -142,13 +140,13 @@ module.exports = {User};
 The table schema a required aspect of using this module. The schema is defined
 with `_key`, `_indexed` and `_keyMap`
 
-`static _key` *string* is required and is basically the primary key for this
+* `static _key` *string* is required and is basically the primary key for this
 	table. It MUST match one of the keys in the `_keyMap` schema
 
-`static _indexed` *array* is optional list of keys to be indexed. Indexed keys
+* `static _indexed` *array* is optional list of keys to be indexed. Indexed keys
 can be searched by with the `list()` and `listDetial()` methods.
 
-`static _keyMap` *object* is required and defines the allowed schema for the
+* `static _keyMap` *object* is required and defines the allowed schema for the
 table. Validation will be enforced based on what is defined in the schema.
 
 The `_keyMap` schema is an object where the key is the name of the field and the
@@ -162,10 +160,12 @@ value is an object with the options for that field:
 
 * `type` *string* Required The native type this field will be checked for, valid
 	types are:
-		* `string`
-		* `number` 
-		* `boolean`
-		* `object`
+	
+	* `string`
+	* `number` 
+	* `boolean`
+	* `object`
+
 * `isRequired` *boolean* If this is set to true, this must be set when a new
 	entry is created. This has no effect on updates.
 * `default` *field type or function* if nothing is passed, this will be used be
@@ -174,6 +174,8 @@ value is an object with the options for that field:
 * `always` *boolean* If this is set, the `default` is set, then its value will
 	always be used when calling update. This is useful for setting an updated on
 	field or access count.
+* `min` *number* Used with *string* or *number* type to define the lower limit
+* `max` *number* Used with *string* or *number* type to define the max limit 
 
 Once we have defined a `_keyMap` schema, the table can be used.
 
