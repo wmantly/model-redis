@@ -15,7 +15,7 @@ function setUpTable(obj){
 
 	// test client connection
 	
-	return table(client);
+	return table(client, obj.prefix);
 }
 
 module.exports = {client, setUpTable};
