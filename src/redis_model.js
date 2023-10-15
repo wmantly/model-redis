@@ -3,7 +3,12 @@
 const objValidate = require('./object_validate');
 
 
-function setUpTable(client){
+
+function setUpTable(client, prefix=''){
+
+	function redisPrefix(key){
+		return `${prefix}${key}`;
+	}
 
 	class Table{
 		static _indexed = [];
@@ -21,7 +26,11 @@ function setUpTable(client){
 					index = index[this._key]
 				}
 
-				let result = await client.HGETALL(`${this.prototype.constructor.name}_${index}`);
+				console.log('get', redisPrefix(`${this.prototype.constructor.name}_${index}`))
+
+				let result = await client.HGETALL(
+					redisPrefix(`${this.prototype.constructor.name}_${index}`)
+				);
 
 				if(Object.keys(result).length === 0){
 					let error = new Error('EntryNotFound');
@@ -57,13 +66,21 @@ function setUpTable(client){
 			// return a list of all the index keys for this table.
 			try{
 
+
+				console.log('here')
+
 				if(index_key && !this._indexed.includes(index_key)) return [];
+				console.log('here2', redisPrefix(`${this.prototype.constructor.name}_${index_key}_${value}`))
 
 				if(index_key && this._indexed.includes(index_key)){
-					return await client.SMEMBERS(`${this.prototype.constructor.name}_${index_key}_${value}`);
+					return await client.SMEMBERS(
+						redisPrefix(`${this.prototype.constructor.name}_${index_key}_${value}`)
+					);
 				}
+				console.log('here3', redisPrefix(this.prototype.constructor.name))
 
-				return await client.SMEMBERS(this.prototype.constructor.name);
+				return await client.SMEMBERS(
+					redisPrefix(this.prototype.constructor.name));
 
 			}catch(error){
 				throw error;
@@ -99,19 +116,25 @@ function setUpTable(client){
 				}
 
 				// Add the key to the members for this redis table
-				await client.SADD(this.prototype.constructor.name, String(data[this._key]));
+				await client.SADD(
+					redisPrefix(this.prototype.constructor.name),
+					String(data[this._key])
+				);
 
 				// Create index keys lists
 				for(let index of this._indexed){
 					if(data[index]) await client.SADD(
-						`${this.prototype.constructor.name}_${index}_${data[index]}`,
+						redisPrefix(`${this.prototype.constructor.name}_${index}_${data[index]}`),
 						String(data[this._key]
 					));
 				}
 
 				// Add the values for this entry.
 				for(let key of Object.keys(data)){
-					await client.HSET(`${this.prototype.constructor.name}_${data[this._key]}`, key, objValidate.parseToString(data[key]));
+					await client.HSET(
+						redisPrefix(`${this.prototype.constructor.name}_${data[this._key]}`),
+						key, objValidate.parseToString(data[key])
+					);
 				}
 
 				// return the created redis entry as entry instance.
@@ -147,12 +170,12 @@ function setUpTable(client){
 					for(let index of this.constructor._indexed){
 						if(data[index]){
 							await client.SREM(
-								`${this.constructor.name}_${index}_${this[index]}`,
+								redisPrefix(`${this.constructor.name}_${index}_${this[index]}`),
 								String(this[this.constructor._key])
 							);
 
 							await client.SADD(
-								`${this.constructor.name}_${index}_${data[index]}`,
+								redisPrefix(`${this.constructor.name}_${index}_${data[index]}`),
 								String(data[this.constructor._key] || this[this.constructor._key])
 							);
 						}
@@ -161,7 +184,10 @@ function setUpTable(client){
 					// Loop over the data fields and apply them to redis
 					for(let key of Object.keys(data)){
 						this[key] = data[key];
-						await client.HSET(`${this.constructor.name}_${this[this.constructor._key]}`, key, data[key]);
+						await client.HSET(
+							redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`),
+							key, data[key]
+						);
 					}
 				}
 
@@ -179,14 +205,23 @@ function setUpTable(client){
 			try{
 				// Remove the index key from the tables members list.
 
-				await client.SREM(this.constructor.name, this[this.constructor._key]);
+				await client.SREM(
+					redisPrefix(this.constructor.name),
+					this[this.constructor._key]
+				);
 
 				for(let index of this.constructor._indexed){
-					await client.SREM(`${this.constructor.name}_${index}_${data[value]}`, data[this.constructor._key]);
+					await client.SREM(
+						redisPrefix(`${this.constructor.name}_${index}_${data[value]}`),
+						data[this.constructor._key]
+					);
 				}
 
 				// Remove the entries hash values.
-				let count = await client.DEL(`${this.constructor.name}_${this[this.constructor._key]}`);
+				let count = await client.DEL(
+					redisPrefix(
+						`${this.constructor.name}_${this[this.constructor._key]}`)
+					);
 
 				// Return the number of removed values to the caller.
 				return count;
@@ -195,8 +230,9 @@ function setUpTable(client){
 				throw error;
 			}
 		};
-
 	}
+
+	return Table;
 }
 
 module.exports = setUpTable;
