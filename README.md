@@ -1,23 +1,23 @@
 # Model Redis
 
-Simple ORM model for redis in NodsJS. The only external dependence is `redis`.
-This provides a simple ORM interface, with schema, for redis. This is not meant 
+Simple ORM model for Redis in NodsJS. The only external dependence is `redis`.
+This provides a simple ORM interface, with schema, for Redis. This is not meant 
 for large data sets and is geared more for small, internal infrastructure based
 projects that do not require complex data model.
 
 
 ## Getting started
 
-`setUpTable([object])` -- *Function* to bind the redis connection
+`setUpTable([object])` -- *Function* to bind the Redis connection
 	object to the ORM table. It takes an optional connected redis client object
-	or configuration for the redis module. This will return a `Table` class we
+	or configuration for the Redis module. This will return a `Table` class we
 	can use later for our model.
 
 It is recommend you place this in a utility or lib file with in your project
 and require it when needed.
 
 The simplest way to use this is to pass nothing to the `setUpTable` function.
-this will create a connected client to redis using the default settings:
+this will create a connected client to Redis using the default settings:
 
 ```javascript
 'use strict';
@@ -29,14 +29,14 @@ const Table = setUpTable();
 module.exports = Table;
 ```
 
-You can also pass your own configuration options to the redis client. See the
+You can also pass your own configuration options to the Redis client. See the
 redis [client configuration guide](https://github.com/redis/node-redis/blob/master/docs/client-configuration.md)
 for available options:
 
 ```javascript
 'use strict';
 
-const {setUpTable} = require('model-redis')
+const {setUpTable} = require('model-redis');
 
 const conf = {
 	socket: {
@@ -45,7 +45,7 @@ const conf = {
 	},
 	username: admin,
 	password: hunter42
-}
+};
 
 const Table = setUpTable({redisConf: conf});
 
@@ -53,12 +53,12 @@ module.exports = Table;
 ```
 
 It can also take a Redis client object, if you would like to have more control
-or use a custom version on redis.
+or use a custom version on Redis.
 
 ```javascript
 'use strict';
 
-const {setUpTable} = require('model-redis')
+const {setUpTable} = require('model-redis');
 
 const {createClient} = require('redis');
 const client = createClient();
@@ -68,6 +68,23 @@ const Table = setUpTable({redisClient: client});
 
 module.exports = Table;
 
+```
+
+### Prefix key
+
+At some point, the Redis package removed the option to prefix a string to the
+keys. This functionally has been added back with this package
+
+```javascript
+'use strict';
+
+const {setUpTable} = require('model-redis');
+
+const Table = setUpTable({
+	prefix: 'auth_app'
+});
+
+module.exports = Table;
 ```
 
 Once we have have our table object, we can start building using the ORM!
