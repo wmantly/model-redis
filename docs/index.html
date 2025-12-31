@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Simple ORM model for Redis in Node.js with schema validation, relationships, and automatic type conversion.">
+    <title>Model Redis - Simple ORM for Redis in Node.js</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <h1>
+                    <span class="logo-icon">📦</span>
+                    Model Redis
+                </h1>
+                <p class="tagline">Simple ORM for Redis in Node.js</p>
+            </div>
+            <div class="header-links">
+                <a href="https://github.com/wmantly/model-redis" class="btn btn-primary">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                    </svg>
+                    View on GitHub
+                </a>
+                <a href="https://www.npmjs.com/package/model-redis" class="btn btn-secondary">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M0 7.334v8h6.666v1.332H12v-1.332h12v-8H0zm6.666 6.664H5.334v-4H3.999v4H1.335V8.667h5.331v5.331zm4 0v1.336H8.001V8.667h5.334v5.332h-2.669v-.001zm12.001 0h-1.33v-4h-1.336v4h-1.335v-4h-1.33v4h-2.671V8.667h8.002v5.331zM10.665 10H12v2.667h-1.335V10z"/>
+                    </svg>
+                    npm Package
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <h2>Redis ORM Made Simple</h2>
+                <p class="hero-description">
+                    Schema-based validation, automatic type conversion, and model relationships for Redis in Node.js.
+                    Perfect for small to medium-sized projects that need a simple data layer.
+                </p>
+                <div class="features-grid">
+                    <div class="feature">
+                        <span class="feature-icon">📋</span>
+                        <h3>Schema Validation</h3>
+                        <p>Type checking, min/max values, and required fields</p>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-icon">🔗</span>
+                        <h3>Relationships</h3>
+                        <p>One-to-one and one-to-many with cycle detection</p>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-icon">🔄</span>
+                        <h3>Type Conversion</h3>
+                        <p>Automatic conversion between Redis strings and native types</p>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-icon">🧪</span>
+                        <h3>Well Tested</h3>
+                        <p>84%+ code coverage with comprehensive test suite</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="installation">
+            <div class="container">
+                <h2>Installation</h2>
+                <div class="code-block">
+                    <pre><code>npm install model-redis</code></pre>
+                    <button class="copy-btn" onclick="copyToClipboard('npm install model-redis')">Copy</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="quickstart">
+            <div class="container">
+                <h2>Quick Start</h2>
+                <div class="code-block">
+                    <pre><code>const {setUpTable} = require('model-redis');
+
+// Set up the table with optional config
+const Table = await setUpTable({
+    prefix: 'myapp:'  // Optional key prefix
+});
+
+// Define your model
+class User extends Table {
+    static _key = 'username';
+    static _keyMap = {
+        username: {type: 'string', isRequired: true, min: 3, max: 50},
+        email: {type: 'string', isRequired: true},
+        age: {type: 'number', min: 0, max: 150},
+        active: {type: 'boolean', default: true},
+        created: {type: 'number', default: () => Date.now()}
+    };
+}
+
+// Use it!
+const user = await User.create({
+    username: 'john',
+    email: 'john@example.com',
+    age: 30
+});
+
+console.log(user.username); // 'john'
+console.log(user.active);   // true (default value)
+
+// Query
+const john = await User.get('john');
+const allUsers = await User.listDetail();
+const exists = await User.exists('john'); // true
+
+// Update
+await john.update({age: 31});
+
+// Delete
+await john.remove();</code></pre>
+                    <button class="copy-btn" onclick="copyToClipboard(this.previousElementSibling.textContent)">Copy</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="schema">
+            <div class="container">
+                <h2>Schema Definition</h2>
+                <p>Define your data structure with a simple schema:</p>
+
+                <div class="options-grid">
+                    <div class="option">
+                        <h4><code>type</code></h4>
+                        <p>Data type: <code>string</code>, <code>number</code>, <code>boolean</code>, or <code>object</code></p>
+                    </div>
+                    <div class="option">
+                        <h4><code>isRequired</code></h4>
+                        <p>Field must be provided when creating entries</p>
+                    </div>
+                    <div class="option">
+                        <h4><code>default</code></h4>
+                        <p>Default value or function to generate default</p>
+                    </div>
+                    <div class="option">
+                        <h4><code>min / max</code></h4>
+                        <p>Minimum/maximum value for numbers or string length</p>
+                    </div>
+                    <div class="option">
+                        <h4><code>always</code></h4>
+                        <p>Always apply default on update (e.g., timestamps)</p>
+                    </div>
+                    <div class="option">
+                        <h4><code>isPrivate</code></h4>
+                        <p>Exclude from JSON output (e.g., passwords)</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="relationships">
+            <div class="container">
+                <h2>Model Relationships</h2>
+                <p>Define relationships between models with automatic loading and cycle detection:</p>
+
+                <div class="code-block">
+                    <pre><code>// Define models with relationships
+class User extends Table {
+    static _key = 'id';
+    static _keyMap = {
+        id: {type: 'string', isRequired: true},
+        name: {type: 'string', isRequired: true},
+        posts: {model: 'Post', rel: 'many', remoteKey: 'userId', localKey: 'id'}
+    };
+}
+
+class Post extends Table {
+    static _key = 'id';
+    static _keyMap = {
+        id: {type: 'string', isRequired: true},
+        title: {type: 'string', isRequired: true},
+        userId: {type: 'string', isRequired: true},
+        user: {model: 'User', rel: 'one', localKey: 'userId'}
+    };
+}
+
+// Register models for relationships
+User.register();
+Post.register();
+
+// Relationships are loaded automatically
+const user = await User.get('user1');
+console.log(user.posts); // Array of Post instances
+
+const post = await Post.get('post1');
+console.log(post.user);  // User instance</code></pre>
+                    <button class="copy-btn" onclick="copyToClipboard(this.previousElementSibling.textContent)">Copy</button>
+                </div>
+
+                <div class="info-box">
+                    <h4>🔄 Automatic Cycle Detection</h4>
+                    <p>The QueryHelper class prevents infinite loops in circular relationships. When loading a User with Posts, each Post's User reference won't recurse infinitely.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="api">
+            <div class="container">
+                <h2>API Reference</h2>
+
+                <div class="api-section">
+                    <h3>Static Methods</h3>
+                    <div class="methods-grid">
+                        <div class="method">
+                            <code>await Model.create(data)</code>
+                            <p>Create a new entry with validation</p>
+                        </div>
+                        <div class="method">
+                            <code>await Model.get(pk)</code>
+                            <p>Get entry by primary key</p>
+                        </div>
+                        <div class="method">
+                            <code>await Model.exists(pk)</code>
+                            <p>Check if entry exists (returns boolean)</p>
+                        </div>
+                        <div class="method">
+                            <code>await Model.list()</code>
+                            <p>Get array of all primary keys</p>
+                        </div>
+                        <div class="method">
+                            <code>await Model.listDetail(options)</code>
+                            <p>Get array of all instances with optional filtering</p>
+                        </div>
+                        <div class="method">
+                            <code>await Model.findall(options)</code>
+                            <p>Alias for listDetail()</p>
+                        </div>
+                        <div class="method">
+                            <code>Model.register()</code>
+                            <p>Register model for relationships</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="api-section">
+                    <h3>Instance Methods</h3>
+                    <div class="methods-grid">
+                        <div class="method">
+                            <code>await instance.update(data)</code>
+                            <p>Update instance with new data</p>
+                        </div>
+                        <div class="method">
+                            <code>await instance.remove()</code>
+                            <p>Delete the instance from Redis</p>
+                        </div>
+                        <div class="method">
+                            <code>instance.toJSON()</code>
+                            <p>Convert to plain object (excludes isPrivate fields)</p>
+                        </div>
+                        <div class="method">
+                            <code>instance.toString()</code>
+                            <p>Returns primary key value as string</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="errors">
+            <div class="container">
+                <h2>Error Handling</h2>
+                <div class="code-block">
+                    <pre><code>try {
+    await User.create({username: 'ab'}); // Too short (min: 3)
+} catch(error) {
+    if(error.name === 'ObjectValidateError') {
+        console.log(error.message); // Array of validation errors
+        console.log(error.status);  // 422
+    }
+}
+
+try {
+    await User.get('nonexistent');
+} catch(error) {
+    if(error.name === 'EntryNotFound') {
+        console.log(error.status);  // 404
+    }
+}
+
+try {
+    await User.create({username: 'john', email: 'john@example.com'});
+    await User.create({username: 'john', email: 'other@example.com'});
+} catch(error) {
+    if(error.name === 'EntryNameUsed') {
+        console.log(error.status);  // 409
+    }
+}</code></pre>
+                    <button class="copy-btn" onclick="copyToClipboard(this.previousElementSibling.textContent)">Copy</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="testing">
+            <div class="container">
+                <h2>Testing</h2>
+                <p>Model Redis comes with a comprehensive test suite:</p>
+
+                <div class="stats-grid">
+                    <div class="stat">
+                        <div class="stat-value">84.88%</div>
+                        <div class="stat-label">Code Coverage</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">67</div>
+                        <div class="stat-label">Total Tests</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">66</div>
+                        <div class="stat-label">Passing</div>
+                    </div>
+                </div>
+
+                <div class="code-block">
+                    <pre><code># Run tests
+npm test
+
+# Watch mode
+npm run test:watch
+
+# Coverage report
+npm run test:coverage</code></pre>
+                    <button class="copy-btn" onclick="copyToClipboard(this.previousElementSibling.textContent)">Copy</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="examples">
+            <div class="container">
+                <h2>Complete Example</h2>
+                <div class="code-block">
+                    <pre><code>const {setUpTable} = require('model-redis');
+const bcrypt = require('bcrypt');
+
+const Table = await setUpTable({prefix: 'auth:'});
+
+class User extends Table {
+    static _key = 'username';
+    static _keyMap = {
+        username: {type: 'string', isRequired: true, min: 3, max: 50},
+        password: {type: 'string', isRequired: true, min: 8, isPrivate: true},
+        email: {type: 'string', isRequired: true},
+        createdAt: {type: 'number', default: () => Date.now()},
+        updatedAt: {type: 'number', default: () => Date.now(), always: true}
+    };
+
+    static async create(data) {
+        // Hash password before saving
+        data.password = await bcrypt.hash(data.password, 10);
+        return await super.create(data);
+    }
+
+    async checkPassword(password) {
+        return await bcrypt.compare(password, this.password);
+    }
+
+    static async login(username, password) {
+        const user = await User.get(username);
+        const valid = await user.checkPassword(password);
+
+        if (!valid) {
+            throw new Error('Invalid credentials');
+        }
+
+        return user;
+    }
+}
+
+// Usage
+const user = await User.create({
+    username: 'john',
+    password: 'secretpass',
+    email: 'john@example.com'
+});
+
+// Login
+const loggedIn = await User.login('john', 'secretpass');
+
+// Password is hidden in JSON
+console.log(loggedIn.toJSON());
+// {username: 'john', email: 'john@example.com', createdAt: ..., updatedAt: ...}</code></pre>
+                    <button class="copy-btn" onclick="copyToClipboard(this.previousElementSibling.textContent)">Copy</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>Model Redis</h4>
+                    <p>Simple ORM for Redis in Node.js</p>
+                    <p class="license">MIT License</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Links</h4>
+                    <ul>
+                        <li><a href="https://github.com/wmantly/model-redis">GitHub Repository</a></li>
+                        <li><a href="https://www.npmjs.com/package/model-redis">npm Package</a></li>
+                        <li><a href="https://github.com/wmantly/model-redis/issues">Report Issues</a></li>
+                        <li><a href="https://github.com/wmantly/model-redis/pulls">Pull Requests</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="https://github.com/redis/node-redis">Redis Client</a></li>
+                        <li><a href="https://redis.io/documentation">Redis Documentation</a></li>
+                        <li><a href="https://github.com/wmantly/model-redis/blob/main/README.md">README</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>Created by William Mantly</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                // Show feedback
+                event.target.textContent = 'Copied!';
+                setTimeout(() => {
+                    event.target.textContent = 'Copy';
+                }, 2000);
+            });
+        }
+
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
