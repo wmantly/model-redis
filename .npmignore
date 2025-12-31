@@ -1,0 +1,28 @@
+# Test files
+tests/
+coverage/
+.nyc_output/
+
+# Build and development
+.claude/
+.github/
+docs/
+
+# Git
+.git/
+.gitignore
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
