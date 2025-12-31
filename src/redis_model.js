@@ -2,237 +2,313 @@
 
 const objValidate = require('./object_validate');
 
+class QueryHelper{
+    history = []
+    constructor(origin){
+        this.origin = origin
+        this.history.push(origin.constructor.name);
+    }
 
+    static isNotCycle(modelName, queryHelper){
+        if(!(queryHelper instanceof this)){
+            return true;  // No queryHelper, can't detect cycles
+        }
+        if(queryHelper.history.includes(modelName)){
+            return false;  // Cycle detected - return false to skip
+        }
+        queryHelper.history.push(modelName);
+        return true;  // No cycle detected - return true to continue
+    }
+}
 
 function setUpTable(client, prefix=''){
 
-	function redisPrefix(key){
-		return `${prefix}${key}`;
-	}
+    function redisPrefix(key){
+        return `${prefix}${key}`;
+    }
 
-	class Table{
-		static _indexed = [];
+    class Table{
+        static errors = {
+            ObjectValidateError: objValidate.ObjectValidateError,
+            EntryNameUsed: ()=>{
+                let error = new Error('EntryNameUsed');
+                error.name = 'EntryNameUsed';
+                error.message = `${this.prototype.constructor.name}:${data[this._key]} already exists`;
+                error.keys = [{
+                    key: this._key,
+                    message: `${this.prototype.constructor.name}:${data[this._key]} already exists`
+                }]
+                error.status = 409;
 
-		constructor(data){
-			for(let key in data){
-				this[key] = data[key];
-			}
-		}
+                return error;
+            }
+        }
 
-		static async get(index){
-			try{
+        static redisClient = client;
 
-				if(typeof index === 'object'){
-					index = index[this._key]
-				}
+        static models = {}
+        static register = function(Model){
+            Model = Model || this;
+            this.models[Model.name] = Model;
+        }
 
-				console.log('get', redisPrefix(`${this.prototype.constructor.name}_${index}`))
+        constructor(data){
+            for(let key in data){
+                this[key] = data[key];
+            }
+        }
 
-				let result = await client.HGETALL(
-					redisPrefix(`${this.prototype.constructor.name}_${index}`)
-				);
+        static async get(index, queryHelper){
+            try{
+                if(typeof index === 'object'){
+                    index = index[this._key];
+                }
 
-				if(Object.keys(result).length === 0){
-					let error = new Error('EntryNotFound');
-					error.name = 'EntryNotFound';
-					error.message = `${this.prototype.constructor.name}:${index} does not exists`;
-					error.status = 404;
-					throw error;
-				}
+                let result = await client.HGETALL(
+                    redisPrefix(`${this.prototype.constructor.name}_${index}`)
+                );
 
-				// Redis always returns strings, use the keyMap schema to turn them
-				// back to native values.
-				result = objValidate.parseFromString(this._keyMap, result);
+                if(!result || !Object.keys(result).length){
+                    let error = new Error('EntryNotFound');
+                    error.name = 'EntryNotFound';
+                    error.message = `${this.prototype.constructor.name}:${index} does not exists`;
+                    error.status = 404;
+                    throw error;
+                }
 
-				return new this.prototype.constructor(result)
+                // Redis always returns strings, use the keyMap schema to turn them
+                // back to native values.
+                result = objValidate.parseFromString(this._keyMap, result);
 
-			}catch(error){
-				throw error;
-			}
+                let instance = new this(result);
+                await instance.buildRelations(queryHelper);
 
-		}
+                return instance;
+            }catch(error){
+                throw error;
+            }
+        }
 
-		static async exists(data){
-			try{
-				await this.get(data);
+        async buildRelations(queryHelper){
+            // Create QueryHelper if not provided
+            if(!queryHelper){
+                queryHelper = new QueryHelper(this);
+            }
 
-				return true
-			}catch(error){
-				return false;
-			}
-		}
+            for(let [key, options] of Object.entries(this.constructor._keyMap)){
+                if(options.model){
+                    let remoteModel = this.constructor.models[options.model]
+                    try{
+                        if(!QueryHelper.isNotCycle(remoteModel.name, queryHelper)) continue;
+                        if(options.rel === 'one'){
+                            this[key] = await remoteModel.get(this[key] || this[options.localKey || this.constructor._key] , queryHelper)
+                        }
+                        if(options.rel === 'many'){
+                            this[key] = await remoteModel.listDetail({
+                                [options.remoteKey]: this[options.localKey || this.constructor._key],
+                            }, queryHelper)
 
-		static async list(index_key, value){
-			// return a list of all the index keys for this table.
-			try{
+                        }
+                    }catch(error){
+                        // Silently ignore relation loading errors (record may not exist)
+                    }
+                }
+            }
+        }
+
+        static async exists(index){
+            if(typeof index === 'object'){
+                index = index[this._key];
+            }
+
+            return Boolean(await client.SISMEMBER(
+                redisPrefix(this.prototype.constructor.name),
+                index
+            ));
+        }
+
+        static async list(){
+            // return a list of all the index keys for this table.
+            try{
+                return await client.SMEMBERS(
+                    redisPrefix(this.prototype.constructor.name)
+                );
+
+            }catch(error){
+                throw error;
+            }
+        }
+
+        static async listDetail(options, queryHelper){
+
+            // Return a list of the entries as instances.
+            let out = [];
+
+            for(let entry of await this.list()){
+                let instance = await this.get(entry, arguments[arguments.length - 1]);
+                if(!options) out.push(instance);
+                let matchCount = 0;
+                for(let option in options){
+                    if(instance[option] === options[option] && ++matchCount === Object.keys(options).length){
+                        out.push(instance);
+                        break;
+                    }
+                }
+            }
+
+            return out;
+        }
+
+        static findall(...args){
+            return this.listDetail(...args);
+        }
+
+        static async create(data){
+            // Add a entry to this redis table.
+            try{
+
+                // Validate the passed data by the keyMap schema.
+                data = objValidate.processKeys(this._keyMap, data);
+
+                // Do not allow the caller to overwrite an existing index key,
+                if(data[this._key] && await this.exists(data)){
+                    let error = new Error('EntryNameUsed');
+                    error.name = 'EntryNameUsed';
+                    error.message = `${this.prototype.constructor.name}:${data[this._key]} already exists`;
+                    error.keys = [{
+                        key: this._key,
+                        message: `${this.prototype.constructor.name}:${data[this._key]} already exists`
+                    }]
+                    error.status = 409;
+
+                    throw error;
+                }
+
+                // Add the key to the members for this redis table
+                await client.SADD(
+                    redisPrefix(this.prototype.constructor.name),
+                    data[this._key]
+                );
+
+                // Add the values for this entry.
+                for(let key of Object.keys(data)){
+                    if(data[key] === undefined) continue;
+                    await client.HSET(
+                        redisPrefix(`${this.prototype.constructor.name}_${data[this._key]}`),
+                        key,
+                        objValidate.parseToString(data[key])
+                    );
+                }
+
+                // return the created redis entry as entry instance.
+                return await this.get(data[this._key]);
+            } catch(error){
+                throw error;
+            }
+        }
+
+        async update(data){
+            // Update an existing entry.
+            try{
+                // Validate the passed data, ignoring required fields.
+                data = objValidate.processKeys(this.constructor._keyMap, data, true);
+
+                // Check to see if entry name changed.
+                if(data[this.constructor._key] && data[this.constructor._key] !== this[this.constructor._key]){
+                    // Remove the index key from the tables members list.
+
+                    if(data[this.constructor._key] && await this.constructor.exists(data)){
+                        let error = new Error('EntryNameUsed');
+                        error.name = 'EntryNameUsed';
+                        error.message = `${this.constructor.name}:${data[this.constructor._key]} already exists`;
+                        error.keys = [{
+                            key: this.constructor._key,
+                            message: `${this.constructor.name}:${data[this.constructor._key]} already exists`
+                        }]
+                        error.status = 409;
+
+                        throw error;
+                    }
+
+                    await client.SREM(
+                        redisPrefix(this.constructor.name),
+                        this[this.constructor._key]
+                    );
+
+                    // Add the key to the members for this redis table
+                    await client.SADD(
+                        redisPrefix(this.constructor.name),
+                        data[this.constructor._key]
+                    );
+
+                    await client.RENAME(
+                        redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`),
+                        redisPrefix(`${this.constructor.name}_${data[this.constructor._key]}`),
+                    );
+
+                }
+                // Update what ever fields that where passed.
+
+                // Loop over the data fields and apply them to redis
+                for(let key of Object.keys(data)){
+                    this[key] = data[key];
+                    await client.HSET(
+                        redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`),
+                        key, objValidate.parseToString(data[key])
+                    );
+                }
 
 
-				console.log('here')
+                return this;
 
-				if(index_key && !this._indexed.includes(index_key)) return [];
-				console.log('here2', redisPrefix(`${this.prototype.constructor.name}_${index_key}_${value}`))
+            } catch(error){
+                // Pass any error to the calling function
+                throw error;
+            }
+        }
 
-				if(index_key && this._indexed.includes(index_key)){
-					return await client.SMEMBERS(
-						redisPrefix(`${this.prototype.constructor.name}_${index_key}_${value}`)
-					);
-				}
-				console.log('here3', redisPrefix(this.prototype.constructor.name))
+        async remove(data){
+            // Remove an entry from this table.
 
-				return await client.SMEMBERS(
-					redisPrefix(this.prototype.constructor.name));
+            try{
+                // Remove the index key from the tables members list.
+                await client.SREM(
+                    redisPrefix(this.constructor.name),
+                    this[this.constructor._key]
+                );
 
-			}catch(error){
-				throw error;
-			}
-		}
+                // Remove the entries hash values.
+                let count = await client.DEL(
+                    redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`)
+                );
 
-		static async listDetail(index_key, value){
-			// Return a list of the entries as instances.
-			let out = [];
+                // Return the number of removed values to the caller.
+                return this;
 
-			for(let entry of await this.list(index_key, value)){
-				out.push(await this.get(entry));
-			}
+            } catch(error) {
+                throw error;
+            }
+        };
 
-			return out;
-		}
+        toJSON(){
+            let result = {};
+            for (const [key, value] of Object.entries(this)) {
+                if(this.constructor._keyMap[key] && this.constructor._keyMap[key].isPrivate) continue;
+                result[key] = value;
+            }
 
-		static async add(data){
-			// Add a entry to this redis table.
-			try{
-				// Validate the passed data by the keyMap schema.
+            return result
 
-				data = objValidate.processKeys(this._keyMap, data);
+            // return JSON.stringify(result);
+        }
 
-				// Do not allow the caller to overwrite an existing index key,
-				if(data[this._key] && await this.exists(data)){
-					let error = new Error('EntryNameUsed');
-					error.name = 'EntryNameUsed';
-					error.message = `${this.prototype.constructor.name}:${data[this._key]} already exists`;
-					error.status = 409;
+        toString(){
+            return this[this.constructor._key];
+        }
 
-					throw error;
-				}
+    }
 
-				// Add the key to the members for this redis table
-				await client.SADD(
-					redisPrefix(this.prototype.constructor.name),
-					String(data[this._key])
-				);
-
-				// Create index keys lists
-				for(let index of this._indexed){
-					if(data[index]) await client.SADD(
-						redisPrefix(`${this.prototype.constructor.name}_${index}_${data[index]}`),
-						String(data[this._key]
-					));
-				}
-
-				// Add the values for this entry.
-				for(let key of Object.keys(data)){
-					await client.HSET(
-						redisPrefix(`${this.prototype.constructor.name}_${data[this._key]}`),
-						key, objValidate.parseToString(data[key])
-					);
-				}
-
-				// return the created redis entry as entry instance.
-				return await this.get(data[this._key]);
-			} catch(error){
-				throw error;
-			}
-		}
-
-		async update(data, key){
-			// Update an existing entry.
-			try{
-				// Check to see if entry name changed.
-				if(data[this.constructor._key] && data[this.constructor._key] !== this[this.constructor._key]){
-
-					// Merge the current data into with the updated data 
-					let newData = Object.assign({}, this, data);
-
-					// Remove the updated failed so it doesnt keep it
-					delete newData.updated;
-
-					// Create a new record for the updated entry. If that succeeds,
-					// delete the old recored
-					if(await this.add(newData)) await this.remove();
-
-				}else{
-					// Update what ever fields that where passed.
-
-					// Validate the passed data, ignoring required fields.
-					data = objValidate.processKeys(this.constructor._keyMap, data, true);
-					
-					// Update the index keys
-					for(let index of this.constructor._indexed){
-						if(data[index]){
-							await client.SREM(
-								redisPrefix(`${this.constructor.name}_${index}_${this[index]}`),
-								String(this[this.constructor._key])
-							);
-
-							await client.SADD(
-								redisPrefix(`${this.constructor.name}_${index}_${data[index]}`),
-								String(data[this.constructor._key] || this[this.constructor._key])
-							);
-						}
-
-					}
-					// Loop over the data fields and apply them to redis
-					for(let key of Object.keys(data)){
-						this[key] = data[key];
-						await client.HSET(
-							redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`),
-							key, data[key]
-						);
-					}
-				}
-
-				return this;
-			
-			} catch(error){
-				// Pass any error to the calling function
-				throw error;
-			}
-		}
-
-		async remove(data){
-			// Remove an entry from this table.
-
-			try{
-				// Remove the index key from the tables members list.
-
-				await client.SREM(
-					redisPrefix(this.constructor.name),
-					this[this.constructor._key]
-				);
-
-				for(let index of this.constructor._indexed){
-					await client.SREM(
-						redisPrefix(`${this.constructor.name}_${index}_${data[value]}`),
-						data[this.constructor._key]
-					);
-				}
-
-				// Remove the entries hash values.
-				let count = await client.DEL(
-					redisPrefix(
-						`${this.constructor.name}_${this[this.constructor._key]}`)
-					);
-
-				// Return the number of removed values to the caller.
-				return count;
-
-			} catch(error) {
-				throw error;
-			}
-		};
-	}
-
-	return Table;
+    return Table;
 }
 
 module.exports = setUpTable;
