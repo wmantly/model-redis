@@ -2,7 +2,7 @@
 const table = require('./src/redis_model')
 var client = null
 
-function setUpTable(obj){
+async function setUpTable(obj){
 	obj = obj || {};
 
 	if(obj.redisClient){
@@ -10,11 +10,11 @@ function setUpTable(obj){
 	}else{
 		const {createClient} = require('redis');
 		client = createClient(obj.redisConf || {});
-		client.connect();
+		await client.connect();
 	}
 
 	// test client connection
-	
+
 	return table(client, obj.prefix);
 }
 
