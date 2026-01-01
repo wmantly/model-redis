@@ -7,6 +7,7 @@ projects that do not require complex data models.
 
 ## Features
 
+- 📦 **CommonJS & ESM compatible** - Works seamlessly with both module systems
 - 📋 Schema-based validation with type checking
 - 🔑 Primary key and indexed field support
 - 🔗 Model relationships (one-to-one, one-to-many)
@@ -23,15 +24,20 @@ npm install model-redis
 
 ## Getting Started
 
-`setUpTable([object])` - *Async Function* to bind the Redis connection
+`setUpTable([object])` - Function to bind the Redis connection
 to the ORM table. It takes an optional connected redis client object
 or configuration for the Redis module. This will return a `Table` class we
 can use later for our models.
 
+The function returns synchronously, making it compatible with both CommonJS and ESM.
+Redis connection happens in the background, and operations automatically await the connection.
+
 It is recommended you place this in a utility or lib file within your project
 and require it when needed.
 
-The simplest way to use this is to pass nothing to the `setUpTable` function.
+### CommonJS Usage
+
+The simplest way to use this in CommonJS is to pass nothing to the `setUpTable` function.
 This will create a connected client to Redis using the default settings:
 
 ```javascript
@@ -39,9 +45,21 @@ This will create a connected client to Redis using the default settings:
 
 const {setUpTable} = require('model-redis');
 
-const Table = await setUpTable();
+const Table = setUpTable();
 
 module.exports = Table;
+```
+
+### ESM Usage
+
+For ESM projects, you can still use `await` if preferred (though it's no longer required):
+
+```javascript
+import {setUpTable} from 'model-redis';
+
+const Table = await setUpTable();
+
+export default Table;
 ```
 
 You can also pass your own configuration options to the Redis client. See the
@@ -62,7 +80,7 @@ const conf = {
     password: 'hunter42'
 };
 
-const Table = await setUpTable({redisConf: conf});
+const Table = setUpTable({redisConf: conf});
 
 module.exports = Table;
 ```
@@ -79,10 +97,12 @@ const {createClient} = require('redis');
 const client = createClient();
 await client.connect();
 
-const Table = await setUpTable({redisClient: client});
+const Table = setUpTable({redisClient: client});
 
 module.exports = Table;
 ```
+
+**Note:** When passing a custom client, ensure it's connected before passing it to `setUpTable`.
 
 ### Prefix Key
 
@@ -94,7 +114,7 @@ keys. This functionality has been added back with this package:
 
 const {setUpTable} = require('model-redis');
 
-const Table = await setUpTable({
+const Table = setUpTable({
     prefix: 'auth_app:'
 });
 
@@ -262,7 +282,7 @@ All of these methods are extensible so proper business logic can be implemented.
 Model Redis supports relationships between models through the model registry system:
 
 ```javascript
-const Table = await setUpTable();
+const Table = setUpTable();
 
 // Define User model
 class User extends Table {

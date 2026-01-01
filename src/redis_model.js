@@ -21,10 +21,17 @@ class QueryHelper{
     }
 }
 
-function setUpTable(client, prefix=''){
+function setUpTable(client, prefix='', connectionPromise=null){
 
     function redisPrefix(key){
         return `${prefix}${key}`;
+    }
+
+    // Helper function to await connection if promise exists
+    async function ensureClientReady(){
+        if(connectionPromise){
+            await connectionPromise;
+        }
     }
 
     class Table{
@@ -60,6 +67,9 @@ function setUpTable(client, prefix=''){
 
         static async get(index, queryHelper){
             try{
+                // Ensure client is connected before proceeding
+                await ensureClientReady();
+
                 if(typeof index === 'object'){
                     index = index[this._key];
                 }
@@ -117,6 +127,9 @@ function setUpTable(client, prefix=''){
         }
 
         static async exists(index){
+            // Ensure client is connected before proceeding
+            await ensureClientReady();
+
             if(typeof index === 'object'){
                 index = index[this._key];
             }
@@ -130,6 +143,9 @@ function setUpTable(client, prefix=''){
         static async list(){
             // return a list of all the index keys for this table.
             try{
+                // Ensure client is connected before proceeding
+                await ensureClientReady();
+
                 return await client.SMEMBERS(
                     redisPrefix(this.prototype.constructor.name)
                 );
@@ -166,6 +182,8 @@ function setUpTable(client, prefix=''){
         static async create(data){
             // Add a entry to this redis table.
             try{
+                // Ensure client is connected before proceeding
+                await ensureClientReady();
 
                 // Validate the passed data by the keyMap schema.
                 data = objValidate.processKeys(this._keyMap, data);
@@ -210,6 +228,9 @@ function setUpTable(client, prefix=''){
         async update(data){
             // Update an existing entry.
             try{
+                // Ensure client is connected before proceeding
+                await ensureClientReady();
+
                 // Validate the passed data, ignoring required fields.
                 data = objValidate.processKeys(this.constructor._keyMap, data, true);
 
@@ -271,6 +292,9 @@ function setUpTable(client, prefix=''){
             // Remove an entry from this table.
 
             try{
+                // Ensure client is connected before proceeding
+                await ensureClientReady();
+
                 // Remove the index key from the tables members list.
                 await client.SREM(
                     redisPrefix(this.constructor.name),

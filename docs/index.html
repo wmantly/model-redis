@@ -47,6 +47,11 @@
                 </p>
                 <div class="features-grid">
                     <div class="feature">
+                        <span class="feature-icon">📦</span>
+                        <h3>CommonJS & ESM</h3>
+                        <p>Works seamlessly with both module systems</p>
+                    </div>
+                    <div class="feature">
                         <span class="feature-icon">📋</span>
                         <h3>Schema Validation</h3>
                         <p>Type checking, min/max values, and required fields</p>
@@ -83,11 +88,13 @@
         <section class="quickstart">
             <div class="container">
                 <h2>Quick Start</h2>
+                <p>Works with both CommonJS and ESM - no async/await required for setup!</p>
                 <div class="code-block">
                     <pre><code>const {setUpTable} = require('model-redis');
 
 // Set up the table with optional config
-const Table = await setUpTable({
+// Connection happens in background - no await needed!
+const Table = setUpTable({
     prefix: 'myapp:'  // Optional key prefix
 });
 
@@ -345,7 +352,7 @@ npm run test:coverage</code></pre>
                     <pre><code>const {setUpTable} = require('model-redis');
 const bcrypt = require('bcrypt');
 
-const Table = await setUpTable({prefix: 'auth:'});
+const Table = setUpTable({prefix: 'auth:'});
 
 class User extends Table {
     static _key = 'username';
