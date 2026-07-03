@@ -86,6 +86,28 @@ class MockRedisClient {
         return 'OK';
     }
 
+    async TYPE(key) {
+        if (this.sets.has(key)) return 'set';
+        if (this.data.has(key)) return 'hash';
+        return 'none';
+    }
+
+    async SCAN(cursor, options = {}) {
+        const match = options.MATCH;
+        // Translate a redis glob (only '*' is used by model-redis) to a regex.
+        const test = match
+            ? new RegExp('^' + match.split('*')
+                .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                .join('.*') + '$')
+            : null;
+
+        const keys = new Set([...this.data.keys(), ...this.sets.keys()]);
+        const matched = [...keys].filter(key => !test || test.test(key));
+
+        // Return everything in a single page; a '0' cursor ends the scan.
+        return { cursor: 0, keys: matched };
+    }
+
     flushall() {
         this.data.clear();
         this.sets.clear();

@@ -179,6 +179,157 @@ function setUpTable(client, prefix='', connectionPromise=null){
             return this.listDetail(...args);
         }
 
+        // Scan every key matching a pattern, following the SCAN cursor to the
+        // end. Returns a plain array of key names.
+        static async _scanKeys(match){
+            await ensureClientReady();
+
+            const keys = [];
+            // redis v5+ requires the SCAN cursor as a string; '0' both starts
+            // and terminates the iteration.
+            let cursor = '0';
+            do{
+                const reply = await client.SCAN(cursor, {MATCH: match, COUNT: 1000});
+                // node-redis returns {cursor, keys}; tolerate the raw array form.
+                cursor = String(reply.cursor !== undefined ? reply.cursor : reply[0]);
+                const batch = reply.keys !== undefined ? reply.keys : reply[1];
+                for(const key of batch) keys.push(key);
+            }while(cursor !== '0');
+
+            return keys;
+        }
+
+        // For a registered model, verify every rel:'one' foreign key resolves
+        // to a live member of the target model's index set.
+        static async _relationOrphans(name, model, backedIds){
+            const out = [];
+            const keyMap = model._keyMap || {};
+            const relFields = Object.entries(keyMap)
+                .filter(([, opt]) => opt && opt.model && opt.rel === 'one');
+            if(!relFields.length) return out;
+
+            for(const id of backedIds){
+                const hash = await client.HGETALL(redisPrefix(`${name}_${id}`));
+                for(const [field, opt] of relFields){
+                    // The FK is stored at localKey (or the model's own _key),
+                    // matching how buildRelations resolves the relation.
+                    const fkField = opt.localKey || model._key;
+                    const fk = hash[field] || hash[fkField];
+                    if(!fk) continue;
+
+                    const target = this.models[opt.model];
+                    if(!target) continue; // target model not registered, cannot verify
+
+                    const isMember = await client.SISMEMBER(redisPrefix(target.name), fk);
+                    if(!isMember) out.push({id, field, target: opt.model, fk});
+                }
+            }
+
+            return out;
+        }
+
+        /**
+         * Find orphaned data across every model, derived purely from the
+         * model-redis storage contract:
+         *   <prefix><Model>       - SET of index values (source of truth)
+         *   <prefix><Model>_<id>  - HASH of that entry's fields
+         *
+         * Model families are discovered from the keyspace (not just the
+         * registry), so unregistered-but-used models are still reconciled.
+         * Registered models additionally get their rel:'one' foreign keys
+         * validated.
+         *
+         * Returns {prefix, models, unclassified, totals} where each model has
+         *   leaked          - hashes whose id is absent from the set (invisible
+         *                      to list()/listDetail())
+         *   dangling        - set members with no backing hash (get() 404s)
+         *   brokenRelations - rel:'one' FKs pointing at a missing target
+         */
+        static async findOrphans(){
+            await ensureClientReady();
+
+            const allKeys = await this._scanKeys(redisPrefix('*'));
+
+            // Discover index-set names: a key of the form <prefix><Name> where
+            // Name has no underscore (model class names never contain one).
+            // Union with the registry so empty-but-registered models still show.
+            const names = new Set(Object.keys(this.models));
+            for(const key of allKeys){
+                const rest = key.slice(prefix.length);
+                if(rest.length && !rest.includes('_')){
+                    if((await client.TYPE(key)) === 'set') names.add(rest);
+                }
+            }
+
+            // Longest name first so a hash is attributed to the most specific
+            // model prefix. The trailing underscore guard prevents ambiguity.
+            const ordered = [...names].sort((a, b) => b.length - a.length);
+
+            const family = {};
+            for(const name of ordered) family[name] = {members: new Set(), hashes: new Set()};
+
+            const unclassified = [];
+            for(const key of allKeys){
+                const rest = key.slice(prefix.length);
+                if(family[rest] !== undefined) continue; // the index set itself
+                const owner = ordered.find(name => rest.startsWith(`${name}_`));
+                if(owner) family[owner].hashes.add(rest.slice(owner.length + 1));
+                else unclassified.push(key);
+            }
+
+            for(const name of ordered){
+                const members = await client.SMEMBERS(redisPrefix(name));
+                for(const member of members) family[name].members.add(member);
+            }
+
+            const models = {};
+            const totals = {leaked: 0, dangling: 0, brokenRelations: 0};
+            for(const name of ordered){
+                const {members, hashes} = family[name];
+                const leaked = [...hashes].filter(id => !members.has(id));
+                const dangling = [...members].filter(id => !hashes.has(id));
+                const backed = [...members].filter(id => hashes.has(id));
+
+                const registered = this.models[name];
+                const brokenRelations = registered
+                    ? await this._relationOrphans(name, registered, backed)
+                    : [];
+
+                models[name] = {
+                    registered: Boolean(registered),
+                    counts: {members: members.size, hashes: hashes.size},
+                    leaked,
+                    dangling,
+                    brokenRelations,
+                };
+                totals.leaked += leaked.length;
+                totals.dangling += dangling.length;
+                totals.brokenRelations += brokenRelations.length;
+            }
+
+            return {prefix, models, unclassified, totals};
+        }
+
+        /**
+         * Remove the unambiguously-safe orphans only: dangling set members
+         * point at nothing, so SREM cannot lose data. Leaked hashes and broken
+         * relations still contain data and are left for manual review.
+         * Pass a report from findOrphans() to reuse it, or omit to compute one.
+         */
+        static async pruneOrphans(report){
+            report = report || await this.findOrphans();
+
+            let removedDangling = 0;
+            for(const [name, info] of Object.entries(report.models)){
+                for(const id of info.dangling){
+                    await client.SREM(redisPrefix(name), id);
+                    removedDangling++;
+                }
+            }
+
+            return {removedDangling};
+        }
+
         static async create(data){
             // Add a entry to this redis table.
             try{
