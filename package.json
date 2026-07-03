@@ -35,7 +35,7 @@
   },
   "homepage": "https://github.com/wmantly/model-redis#readme",
   "dependencies": {
-    "redis": "^4.6.10"
+    "redis": "^6.1.0"
   },
   "devDependencies": {
     "jest": "^30.2.0"

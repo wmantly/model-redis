@@ -185,14 +185,16 @@ function setUpTable(client, prefix='', connectionPromise=null){
             await ensureClientReady();
 
             const keys = [];
-            let cursor = 0;
+            // redis v5+ requires the SCAN cursor as a string; '0' both starts
+            // and terminates the iteration.
+            let cursor = '0';
             do{
                 const reply = await client.SCAN(cursor, {MATCH: match, COUNT: 1000});
                 // node-redis returns {cursor, keys}; tolerate the raw array form.
-                cursor = reply.cursor !== undefined ? reply.cursor : reply[0];
+                cursor = String(reply.cursor !== undefined ? reply.cursor : reply[0]);
                 const batch = reply.keys !== undefined ? reply.keys : reply[1];
                 for(const key of batch) keys.push(key);
-            }while(String(cursor) !== '0');
+            }while(cursor !== '0');
 
             return keys;
         }
