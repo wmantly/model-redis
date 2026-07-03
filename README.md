@@ -13,6 +13,7 @@ projects that do not require complex data models.
 - 🔗 Model relationships (one-to-one, one-to-many)
 - 🔄 Automatic type conversion (Redis strings ↔ native types)
 - 🛡️ Field privacy control (exclude sensitive data from JSON)
+- 🧹 Orphan detection and safe pruning across all models
 - 🧪 Fully tested with 84%+ code coverage
 - 🏷️ Key prefixing support
 
@@ -261,6 +262,12 @@ Static methods are used to query data and create new entries.
 
 * `register([Model])` - Registers a model in the global registry for relationships.
 
+* `await findOrphans()` - Scans the keyspace and returns a report of orphaned
+    data across every model. See [Finding Orphans](#finding-orphans).
+
+* `await pruneOrphans([report])` - Removes the unambiguously-safe orphans
+    (dangling set members). Optionally accepts a report from `findOrphans()`.
+
 ### Instance Methods
 
 Instances of a Table have the following methods:
@@ -330,6 +337,72 @@ const user = await User.get('user1');
 // user.posts will be loaded, but user.posts[0].user won't recurse
 ```
 
+## Finding Orphans
+
+Every model is stored as exactly two key shapes under the configured prefix:
+
+```
+<prefix><Model>          # a SET of index values (the source of truth)
+<prefix><Model>_<id>     # a HASH of that entry's fields
+```
+
+Interrupted writes, external tooling, or app bugs can leave these two out of
+sync. `findOrphans()` reconciles the whole keyspace against that contract and
+reports three model-agnostic orphan classes:
+
+* **leaked** – a `<Model>_<id>` hash whose id is **not** in the index set. The
+    data exists but is invisible to `list()` / `listDetail()`.
+* **dangling** – an index set member with **no** backing hash. `get()` throws a
+    404 for it.
+* **brokenRelations** – a `rel:'one'` foreign key pointing at an id that is
+    absent from the target model's set.
+
+Model families are discovered from the keyspace itself, so **models that were
+used but never `register()`-ed are still checked** (they appear with
+`registered: false`). Relation checks require a registered model with a
+`_keyMap`.
+
+```javascript
+const report = await Table.findOrphans();
+
+// {
+//   prefix: 'auth_app:',
+//   models: {
+//     User: {
+//       registered: true,
+//       counts: { members: 120, hashes: 121 },
+//       leaked: ['abc'],          // hash without a set entry
+//       dangling: [],             // set entry without a hash
+//       brokenRelations: []
+//     },
+//     Session: {                  // never register()-ed
+//       registered: false,
+//       counts: { members: 4, hashes: 4 },
+//       leaked: [], dangling: [], brokenRelations: []
+//     }
+//   },
+//   unclassified: ['auth_app:someStrayKey'],
+//   totals: { leaked: 1, dangling: 0, brokenRelations: 0 }
+// }
+```
+
+### Pruning
+
+`pruneOrphans()` removes only the **dangling set members** — they reference
+nothing, so `SREM` cannot lose data. Leaked hashes and broken relations still
+contain data and are intentionally left for manual review.
+
+```javascript
+const report = await Table.findOrphans();
+const { removedDangling } = await Table.pruneOrphans(report);
+// call without an argument to compute a fresh report first:
+// await Table.pruneOrphans();
+```
+
+Both methods are static and operate across the entire registry/keyspace, so
+they can be called from any model: `User.findOrphans()` and
+`Table.findOrphans()` are equivalent.
+
 ## Error Handling
 
 The module provides custom error types:
@@ -367,8 +440,8 @@ npm run test:coverage
 ### Test Coverage
 
 - **84.88%** overall coverage
-- **67 tests** (66 passing, 1 skipped)
-- Tests for validation, CRUD operations, filtering, and serialization
+- **76 tests** (75 passing, 1 skipped)
+- Tests for validation, CRUD operations, filtering, serialization, and orphan detection
 
 ## Development
 
