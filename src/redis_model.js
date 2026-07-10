@@ -53,6 +53,20 @@ function setUpTable(client, prefix='', connectionPromise=null){
 
         static redisClient = client;
 
+        // Default record lifetime, in seconds, for every entry of this model.
+        // 0 (or falsy) means no expiry. Can be overridden per operation via a
+        // {ttl} option on create()/update() or the instance expire() helper.
+        static _ttl = 0;
+
+        // Resolve the effective TTL (seconds) for an operation. A per-call
+        // options.ttl wins over the model default. The typeof guard tolerates a
+        // non-object second argument (e.g. create(data, true)) so positional
+        // callers do not crash or accidentally set a TTL.
+        static _resolveTTL(options){
+            let ttl = options && typeof options === 'object' ? options.ttl : undefined;
+            return ttl !== undefined ? ttl : this._ttl;
+        }
+
         static models = {}
         static register = function(Model){
             Model = Model || this;
@@ -134,10 +148,19 @@ function setUpTable(client, prefix='', connectionPromise=null){
                 index = index[this._key];
             }
 
-            return Boolean(await client.SISMEMBER(
-                redisPrefix(this.prototype.constructor.name),
-                index
+            // "Exists" means the record is actually retrievable, i.e. its hash
+            // is present. With TTL enabled the hash can expire while the id
+            // lingers in the index SET; treat that as not-existing and SREM the
+            // dangling member so the index self-heals.
+            const hashExists = Boolean(await client.EXISTS(
+                redisPrefix(`${this.prototype.constructor.name}_${index}`)
             ));
+
+            if(!hashExists){
+                await client.SREM(redisPrefix(this.prototype.constructor.name), index);
+            }
+
+            return hashExists;
         }
 
         static async list(){
@@ -161,7 +184,19 @@ function setUpTable(client, prefix='', connectionPromise=null){
             let out = [];
 
             for(let entry of await this.list()){
-                let instance = await this.get(entry, arguments[arguments.length - 1]);
+                let instance;
+                try{
+                    instance = await this.get(entry, arguments[arguments.length - 1]);
+                }catch(error){
+                    // A TTL-expired hash leaves its id in the index SET. Drop the
+                    // dangling member and skip it rather than aborting the whole
+                    // listing over one missing entry.
+                    if(error && error.name === 'EntryNotFound'){
+                        await client.SREM(redisPrefix(this.prototype.constructor.name), entry);
+                        continue;
+                    }
+                    throw error;
+                }
                 if(!options) out.push(instance);
                 let matchCount = 0;
                 for(let option in options){
@@ -330,7 +365,7 @@ function setUpTable(client, prefix='', connectionPromise=null){
             return {removedDangling};
         }
 
-        static async create(data){
+        static async create(data, options){
             // Add a entry to this redis table.
             try{
                 // Ensure client is connected before proceeding
@@ -369,6 +404,17 @@ function setUpTable(client, prefix='', connectionPromise=null){
                     );
                 }
 
+                // Apply expiry to the record hash if this model/operation has a
+                // TTL. Only the hash carries the TTL; the index SET member is
+                // reaped lazily on read once the hash is gone.
+                let ttl = this._resolveTTL(options);
+                if(ttl > 0){
+                    await client.EXPIRE(
+                        redisPrefix(`${this.prototype.constructor.name}_${data[this._key]}`),
+                        ttl
+                    );
+                }
+
                 // return the created redis entry as entry instance.
                 return await this.get(data[this._key]);
             } catch(error){
@@ -376,7 +422,7 @@ function setUpTable(client, prefix='', connectionPromise=null){
             }
         }
 
-        async update(data){
+        async update(data, options){
             // Update an existing entry.
             try{
                 // Ensure client is connected before proceeding
@@ -385,8 +431,20 @@ function setUpTable(client, prefix='', connectionPromise=null){
                 // Validate the passed data, ignoring required fields.
                 data = objValidate.processKeys(this.constructor._keyMap, data, true);
 
+                // Capture the remaining lifetime before any RENAME, which in
+                // Redis drops the TTL. Field-level HSET below preserves the TTL,
+                // so we only need to re-apply it when the primary key changes.
+                const pttl = await client.PTTL(
+                    redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`)
+                );
+
+                // Whether the primary key is changing. Captured now because the
+                // field loop below reassigns this[_key] to the new value.
+                const renamed = Boolean(data[this.constructor._key]
+                    && data[this.constructor._key] !== this[this.constructor._key]);
+
                 // Check to see if entry name changed.
-                if(data[this.constructor._key] && data[this.constructor._key] !== this[this.constructor._key]){
+                if(renamed){
                     // Remove the index key from the tables members list.
 
                     if(data[this.constructor._key] && await this.constructor.exists(data)){
@@ -430,6 +488,21 @@ function setUpTable(client, prefix='', connectionPromise=null){
                     );
                 }
 
+                // TTL handling: an explicit {ttl} resets the lifetime; otherwise
+                // keep it as-is. HSET already preserves the TTL for the in-place
+                // case, but RENAME cleared it, so carry the captured remaining
+                // lifetime across when the primary key changed.
+                let hashKey = redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`);
+                let optTTL = options && typeof options === 'object' ? options.ttl : undefined;
+                if(optTTL !== undefined){
+                    if(optTTL > 0){
+                        await client.EXPIRE(hashKey, optTTL);
+                    }else{
+                        await client.PERSIST(hashKey);
+                    }
+                }else if(renamed && pttl > 0){
+                    await client.PEXPIRE(hashKey, pttl);
+                }
 
                 return this;
 
@@ -464,6 +537,34 @@ function setUpTable(client, prefix='', connectionPromise=null){
                 throw error;
             }
         };
+
+        // Set this entry's record hash to expire after `seconds`. Returns this.
+        async expire(seconds){
+            await ensureClientReady();
+            await client.EXPIRE(
+                redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`),
+                seconds
+            );
+            return this;
+        }
+
+        // Remove any expiry from this entry's record hash. Returns this.
+        async persist(){
+            await ensureClientReady();
+            await client.PERSIST(
+                redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`)
+            );
+            return this;
+        }
+
+        // Remaining lifetime of this entry's record hash, in seconds.
+        // Mirrors Redis TTL: -1 = no expiry, -2 = key missing.
+        async ttl(){
+            await ensureClientReady();
+            return await client.TTL(
+                redisPrefix(`${this.constructor.name}_${this[this.constructor._key]}`)
+            );
+        }
 
         toJSON(){
             let result = {};
