@@ -14,7 +14,8 @@ projects that do not require complex data models.
 - 🔄 Automatic type conversion (Redis strings ↔ native types)
 - 🛡️ Field privacy control (exclude sensitive data from JSON)
 - 🧹 Orphan detection and safe pruning across all models
-- 🧪 Fully tested with 84%+ code coverage
+- ⏳ TTL / expiration — per-record or per-model automatic expiry
+- 🧪 Fully tested with 93%+ code coverage
 - 🏷️ Key prefixing support
 
 ## Installation
@@ -195,6 +196,14 @@ with `_key` and `_keyMap`:
 * `static _keyMap` *object* is required and defines the allowed schema for the
     table. Validation will be enforced based on what is defined in the schema.
 
+* `static _ttl` *number* is optional and sets a default record lifetime, in
+    seconds, for every entry of this model. `0` (the default, or any falsy value)
+    means no expiry. The TTL is applied to the entry's record hash, so an expired
+    entry becomes unretrievable via `get()` and is transparently pruned from the
+    index on the next read (see [TTL / Expiration](#ttl--expiration)). It can be
+    overridden per operation with a `{ttl}` option or the `expire()` instance
+    helper.
+
 The `_keyMap` schema is an object where the key is the name of the field and the
 value is an object with the options for that field:
 
@@ -243,10 +252,12 @@ Once we have defined a `_keyMap` schema, the table can be used.
 
 Static methods are used to query data and create new entries.
 
-* `await create(data)` - Creates and returns a new entry. The passed data object
-    will be validated and a validation error (complete with all the key errors)
-    will be thrown if validation fails. Any key passed in the data object that
-    is not in the `_keyMap` schema will be dropped.
+* `await create(data, [options])` - Creates and returns a new entry. The passed
+    data object will be validated and a validation error (complete with all the
+    key errors) will be thrown if validation fails. Any key passed in the data
+    object that is not in the `_keyMap` schema will be dropped. Pass
+    `{ttl: <seconds>}` as `options` to set (or override the model's `_ttl`) the
+    record lifetime for this entry.
 
 * `await list()` - Returns a list of the primary keys in the table.
 
@@ -272,10 +283,22 @@ Static methods are used to query data and create new entries.
 
 Instances of a Table have the following methods:
 
-* `await update(data)` - Updates the current instance with the newly passed data
-    and returns the updated instance. Data validation is also enforced.
+* `await update(data, [options])` - Updates the current instance with the newly
+    passed data and returns the updated instance. Data validation is also
+    enforced. The remaining lifetime is preserved by default; pass
+    `{ttl: <seconds>}` as `options` to reset the expiry, or `{ttl: 0}` to clear
+    it. A primary-key rename carries the remaining lifetime across.
 
 * `await remove()` - Deletes the current Table instance and returns itself.
+
+* `await expire(seconds)` - Sets this entry's record hash to expire after
+    `seconds`. Returns the instance.
+
+* `await persist()` - Removes any expiry from this entry's record hash so it no
+    longer expires. Returns the instance.
+
+* `await ttl()` - Returns the remaining lifetime of this entry's record hash, in
+    seconds. Mirrors Redis: `-1` means no expiry, `-2` means the record is gone.
 
 * `toJSON()` - Returns a plain JavaScript object representation of the instance.
     Fields marked with `isPrivate: true` are excluded.
@@ -403,6 +426,52 @@ Both methods are static and operate across the entire registry/keyspace, so
 they can be called from any model: `User.findOrphans()` and
 `Table.findOrphans()` are equivalent.
 
+## TTL / Expiration
+
+Entries can be given a lifetime after which they expire automatically. Set a
+default for every entry of a model with `static _ttl` (seconds), or set/override
+it per operation:
+
+```javascript
+class Session extends Table {
+    static _key = 'id';
+    static _ttl = 3600; // every session expires after an hour by default
+    static _keyMap = {
+        id: {type: 'string', isRequired: true},
+        userId: {type: 'string', isRequired: true}
+    };
+}
+
+// Uses the model default (3600s):
+const s = await Session.create({id: 'a', userId: 'u1'});
+
+// Override for a single entry:
+const short = await Session.create({id: 'b', userId: 'u1'}, {ttl: 60});
+
+// Inspect / change the lifetime later:
+await s.ttl();        // -> remaining seconds (-1 = no expiry, -2 = gone)
+await s.expire(120);  // reset to 120s
+await s.persist();    // remove the expiry entirely
+```
+
+**How it works.** Each entry is stored as two Redis keys — a `<Model>` index SET
+and a `<Model>_<id>` field HASH (see [Finding Orphans](#finding-orphans)). Redis
+TTL is per-key, so the expiry is applied to the **hash**. This means a consumer
+reading the hash directly (e.g. via `HGETALL`) sees an expired entry as simply
+absent. Because only the hash expires, the id lingers in the index SET as a
+**dangling** member until it is cleaned up.
+
+That cleanup is automatic on read: `get()` throws `EntryNotFound` for an expired
+entry, `exists()` returns `false` and removes the dangling member, and
+`listDetail()` skips expired entries and prunes them from the index as it goes.
+Re-creating an expired key succeeds normally. `pruneOrphans()` remains available
+for batch cleanup of any dangling members that have not yet been touched by a
+read.
+
+`update()` preserves the remaining lifetime by default; pass `{ttl}` to reset it
+(`{ttl: 0}` clears it). A primary-key rename carries the remaining lifetime
+across to the new key.
+
 ## Error Handling
 
 The module provides custom error types:
@@ -439,9 +508,9 @@ npm run test:coverage
 
 ### Test Coverage
 
-- **84.88%** overall coverage
-- **76 tests** (75 passing, 1 skipped)
-- Tests for validation, CRUD operations, filtering, serialization, and orphan detection
+- **93%+** overall coverage
+- **93 tests** (92 passing, 1 skipped)
+- Tests for validation, CRUD operations, filtering, serialization, TTL/expiration, and orphan detection
 
 ## Development
 

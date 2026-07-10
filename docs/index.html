@@ -67,9 +67,14 @@
                         <p>Automatic conversion between Redis strings and native types</p>
                     </div>
                     <div class="feature">
+                        <span class="feature-icon">⏳</span>
+                        <h3>TTL &amp; Expiration</h3>
+                        <p>Per-record or per-model auto-expiry with self-healing reads</p>
+                    </div>
+                    <div class="feature">
                         <span class="feature-icon">🧪</span>
                         <h3>Well Tested</h3>
-                        <p>84%+ code coverage with comprehensive test suite</p>
+                        <p>93%+ code coverage with comprehensive test suite</p>
                     </div>
                 </div>
             </div>
@@ -165,6 +170,10 @@ await john.remove();</code></pre>
                         <h4><code>isPrivate</code></h4>
                         <p>Exclude from JSON output (e.g., passwords)</p>
                     </div>
+                    <div class="option">
+                        <h4><code>static _ttl</code></h4>
+                        <p>Default record lifetime in seconds; <code>0</code> = no expiry</p>
+                    </div>
                 </div>
             </div>
         </section>
@@ -223,8 +232,8 @@ console.log(post.user);  // User instance</code></pre>
                     <h3>Static Methods</h3>
                     <div class="methods-grid">
                         <div class="method">
-                            <code>await Model.create(data)</code>
-                            <p>Create a new entry with validation</p>
+                            <code>await Model.create(data, [{ttl}])</code>
+                            <p>Create a new entry with validation; optional <code>{ttl}</code> in seconds</p>
                         </div>
                         <div class="method">
                             <code>await Model.get(pk)</code>
@@ -257,12 +266,24 @@ console.log(post.user);  // User instance</code></pre>
                     <h3>Instance Methods</h3>
                     <div class="methods-grid">
                         <div class="method">
-                            <code>await instance.update(data)</code>
-                            <p>Update instance with new data</p>
+                            <code>await instance.update(data, [{ttl}])</code>
+                            <p>Update instance with new data; optional <code>{ttl}</code> resets expiry</p>
                         </div>
                         <div class="method">
                             <code>await instance.remove()</code>
                             <p>Delete the instance from Redis</p>
+                        </div>
+                        <div class="method">
+                            <code>await instance.expire(seconds)</code>
+                            <p>Set the record to expire after <code>seconds</code></p>
+                        </div>
+                        <div class="method">
+                            <code>await instance.persist()</code>
+                            <p>Remove any expiry so the record no longer expires</p>
+                        </div>
+                        <div class="method">
+                            <code>await instance.ttl()</code>
+                            <p>Remaining lifetime in seconds (<code>-1</code> none, <code>-2</code> gone)</p>
                         </div>
                         <div class="method">
                             <code>instance.toJSON()</code>
