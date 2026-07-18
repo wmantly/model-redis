@@ -186,7 +186,7 @@ function setUpTable(client, prefix='', connectionPromise=null){
             for(let entry of await this.list()){
                 let instance;
                 try{
-                    instance = await this.get(entry, arguments[arguments.length - 1]);
+                    instance = await this.get(entry, queryHelper);
                 }catch(error){
                     // A TTL-expired hash leaves its id in the index SET. Drop the
                     // dangling member and skip it rather than aborting the whole

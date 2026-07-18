@@ -7,16 +7,17 @@ projects that do not require complex data models.
 
 ## Features
 
-- 📦 **CommonJS & ESM compatible** - Works seamlessly with both module systems
-- 📋 Schema-based validation with type checking
-- 🔑 Primary key and indexed field support
-- 🔗 Model relationships (one-to-one, one-to-many)
-- 🔄 Automatic type conversion (Redis strings ↔ native types)
-- 🛡️ Field privacy control (exclude sensitive data from JSON)
-- 🧹 Orphan detection and safe pruning across all models
-- ⏳ TTL / expiration — per-record or per-model automatic expiry
-- 🧪 Fully tested with 93%+ code coverage
-- 🏷️ Key prefixing support
+- CommonJS and ESM compatible
+- Schema-based validation with type checking
+- Primary key and indexed field support
+- Model relationships (one-to-one, one-to-many)
+- Automatic type conversion (Redis strings to native types)
+- Field privacy control (exclude sensitive data from JSON)
+- Orphan detection and safe pruning across all models
+- TTL / expiration - per-record or per-model automatic expiry
+- TypeScript declarations included
+- Fully tested with 94%+ code coverage
+- Key prefixing support
 
 ## Installation
 
@@ -62,6 +63,31 @@ import {setUpTable} from 'model-redis';
 const Table = await setUpTable();
 
 export default Table;
+```
+
+### TypeScript Usage
+
+TypeScript declarations are included, so models get full type checking:
+
+```typescript
+import {setUpTable, Table, FieldOptions} from 'model-redis';
+
+const BaseTable = setUpTable({prefix: 'myapp:'});
+
+interface UserData {
+    username: string;
+    email: string;
+    age?: number;
+}
+
+class User extends BaseTable {
+    static _key: keyof UserData = 'username';
+    static _keyMap: Record<keyof UserData, FieldOptions> = {
+        username: {type: 'string', isRequired: true, min: 3, max: 50},
+        email: {type: 'string', isRequired: true},
+        age: {type: 'number', min: 0, max: 150}
+    };
+}
 ```
 
 You can also pass your own configuration options to the Redis client. See the
@@ -411,7 +437,7 @@ const report = await Table.findOrphans();
 
 ### Pruning
 
-`pruneOrphans()` removes only the **dangling set members** — they reference
+`pruneOrphans()` removes only the **dangling set members** - they reference
 nothing, so `SREM` cannot lose data. Leaked hashes and broken relations still
 contain data and are intentionally left for manual review.
 
@@ -454,7 +480,7 @@ await s.expire(120);  // reset to 120s
 await s.persist();    // remove the expiry entirely
 ```
 
-**How it works.** Each entry is stored as two Redis keys — a `<Model>` index SET
+**How it works.** Each entry is stored as two Redis keys: a `<Model>` index SET
 and a `<Model>_<id>` field HASH (see [Finding Orphans](#finding-orphans)). Redis
 TTL is per-key, so the expiry is applied to the **hash**. This means a consumer
 reading the hash directly (e.g. via `HGETALL`) sees an expired entry as simply
@@ -493,7 +519,7 @@ try {
 
 ## Testing
 
-The project includes a comprehensive test suite:
+The project includes a test suite:
 
 ```bash
 # Run all tests
@@ -508,9 +534,9 @@ npm run test:coverage
 
 ### Test Coverage
 
-- **93%+** overall coverage
-- **93 tests** (92 passing, 1 skipped)
-- Tests for validation, CRUD operations, filtering, serialization, TTL/expiration, and orphan detection
+- **94%+** overall coverage
+- **104 tests** (103 passing, 1 skipped)
+- Tests for validation, CRUD operations, filtering, serialization, TTL/expiration, relationships, and orphan detection
 
 ## Development
 
@@ -532,7 +558,3 @@ MIT
 ## Contributing
 
 Issues and pull requests are welcome! Please see the [issues page](https://github.com/wmantly/model-redis/issues) for current bugs and feature requests.
-
-## Known Issues
-
-- [Issue #3](https://github.com/wmantly/model-redis/issues/3) - Memory leak in relationship test suite (does not affect production usage)
