@@ -136,6 +136,9 @@ export interface OrphanReport {
  * application models.
  */
 export class Table {
+    /** Model fields are stored as instance properties after create/update. */
+    [key: string]: any;
+
     /** Primary key field name; must match a key in `_keyMap`. */
     static _key: string;
     /** Schema that defines valid fields and their options. */
